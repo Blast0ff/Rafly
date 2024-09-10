@@ -26,6 +26,7 @@ session_id = None
 # Command prefix
 PREFIX = '!'
 
+script_dir = os.path.dirname(os.path.abspath(__file__))
 intents = discord.Intents.default()
 intents.message_content = True  # Enable message content intents
 client = discord.Client(intents=intents)
@@ -121,41 +122,43 @@ async def handle_update_command(message):
     await message.channel.send('Failed to download the latest release.')
 
 async def download_latest_release():
-  """Download the latest release of the bot from GitHub."""
-  releases_url = 'https://api.github.com/repos/Blast0ff/Rafly/releases/latest'
-  print(f"Fetching latest release info from {releases_url}")
+    """Download the latest release from GitHub and update the bot."""
+    url = "https://api.github.com/repos/Blast0ff/Rafly/releases/latest"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            release_info = await response.json()
+            download_url = release_info['zipball_url']
+            async with session.get(download_url) as download_response:
+                zip_path = os.path.join(script_dir, 'bot.zip')
+                with open(zip_path, 'wb') as f:
+                    f.write(await download_response.read())
 
-  async with aiohttp.ClientSession() as session:
-    async with session.get(releases_url) as response:
-      if response.status == 200:
-        release_info = await response.json()
-        zip_url = release_info['zipball_url']
-        zip_path = os.path.join(script_dir, 'bot.zip')
-        print(f"Downloading latest release from {zip_url}")
+    # Extract the downloaded zip file
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(script_dir)
+    os.remove(zip_path)
 
-        async with session.get(zip_url) as zip_response:
-          if zip_response.status == 200:
-            print("Download successful, saving to file.")
-            with open(zip_path, 'wb') as file:
-              file.write(await zip_response.read())
+    # Find the extracted folder (it should be the only new folder in the script directory)
+    extracted_folder = None
+    for item in os.listdir(script_dir):
+        item_path = os.path.join(script_dir, item)
+        if os.path.isdir(item_path) and item.startswith('Blast0ff-Rafly-'):
+            extracted_folder = item_path
+            break
 
-            try:
-              print("Extracting zip file.")
-              with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(script_dir)
-              os.remove(zip_path)
-              print("Extraction successful.")
-              return True
-            except zipfile.BadZipFile:
-              print("Bad zip file, removing.")
-              os.remove(zip_path)
-              return False
-          else:
-            print(f"Failed to download file, status code: {zip_response.status}")
-            return False
-      else:
-        print(f"Failed to fetch release info, status code: {response.status}")
-        return False
+    if extracted_folder:
+        # Move the contents of the extracted folder to the script directory
+        for item in os.listdir(extracted_folder):
+            src_path = os.path.join(extracted_folder, item)
+            dst_path = os.path.join(script_dir, item)
+            if os.path.exists(dst_path) and os.path.samefile(src_path, __file__):
+                # Skip moving the current script file
+                continue
+            shutil.move(src_path, dst_path)
+        # Remove the extracted folder
+        shutil.rmtree(extracted_folder)
+
+    return True
 
 def show_message_box(content):
   """Displays a message box on the PC running the bot with the provided content."""
