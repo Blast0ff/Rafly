@@ -1,1 +1,17 @@
 config.json
+build/Rafly/PKG-00.toc
+build/Rafly/Analysis-00.toc
+build/Rafly/base_library.zip
+build/Rafly/EXE-00.toc
+build/Rafly/PYZ-00.pyz
+build/Rafly/PYZ-00.toc
+build/Rafly/Rafly.pkg
+build/Rafly/warn-Rafly.txt
+build/Rafly/xref-Rafly.html
+build/Rafly/localpycs/pyimod01_archive.pyc
+build/Rafly/localpycs/pyimod02_importers.pyc
+build/Rafly/localpycs/pyimod03_ctypes.pyc
+build/Rafly/localpycs/pyimod04_pywin32.pyc
+build/Rafly/localpycs/struct.pyc
+dist/Rafly.exe
+Rafly.spec

