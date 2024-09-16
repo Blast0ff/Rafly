@@ -115,7 +115,17 @@ try:
 except ImportError:
   import_errors.append("winreg module is not available. Please ensure you are using a standard Python distribution on Windows.")
 
-Version = "0.0.5"
+try:
+  import requests
+except ImportError:
+  import_errors.append("requests module is not available. Please install it using 'pip install requests'.")
+
+try:
+  from PIL import Image
+except ImportError:
+  import_errors.append("PIL module is not available. Please install it using 'pip install pillow'.")
+
+Version = "0.0.6"
 
 # Configuration file path
 CONFIG_FILE_PATH = 'config.json'
@@ -588,6 +598,25 @@ async def handle_task_list_command(message):
         embed_background = discord.Embed(title=f"Processes (Part {i + 1})", description=f"```{background_list}```", color=0x00ff00)
         await message.channel.send(embed=embed_background)
 
+async def handle_send_picture_command(message):
+    """Handles the send picture command."""
+    await message.channel.send('Please send the picture you want to open on the PC.')
+
+    def check(m):
+        return m.author == message.author and m.attachments
+
+    try:
+        response = await client.wait_for('message', check=check, timeout=60.0)
+        attachment = response.attachments[0]
+        file_path = os.path.join(script_dir, attachment.filename)
+        await attachment.save(file_path)
+        await message.channel.send(f'Picture saved as {attachment.filename}. Opening it now...')
+        
+        # Open the picture using the default image viewer
+        img = Image.open(file_path)
+        img.show()
+    except asyncio.TimeoutError:
+        await message.channel.send('You took too long to send the picture. Please try again.')
 
 
 # Dictionary to map commands to their corresponding handler functions
@@ -599,6 +628,7 @@ command_handlers = {
     'remove from taskmanager startup': handle_remove_from_taskmanager_startup_command,
     'remove from startup folder': handle_remove_from_startup_folder_command,
     'help': handle_help_command,
+    'sendpicture': handle_send_picture_command,
     'tasklist': handle_task_list_command,
     'taskkill': handle_task_kill_command,
     'update client': handle_update_command,
